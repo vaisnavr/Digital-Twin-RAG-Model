@@ -5,31 +5,45 @@
 
 ---
 
-## 1. Project Overview
+## 📌 1. Project Overview
 
-This project builds a **Customer Persona Twin** that mimics how a fashion-forward, sustainability-aware shopper thinks and speaks when asked fall styling questions. The twin is not a “stylist textbook” or a generic recommender; instead, it responds using the persona’s tone, tradeoffs, and priorities (**trend relevance + ethics + practicality**).
+This project builds a **Customer Persona Twin** that mimics how a **fashion-forward, sustainability-aware shopper** thinks and speaks when asked fall styling questions.
+
+Unlike a generic recommender or a “stylist textbook,” the twin responds using the persona’s:
+
+- Tone  
+- Tradeoffs  
+- Priorities (**trend relevance + ethics + practicality**)
+
+### 🔁 System Flow (RAG Pipeline)
 
 The system is implemented as a **Retrieval-Augmented Generation (RAG)** pipeline on top of **Gemini**:
 
-1. A user asks a question (e.g., *“How do I upgrade my fall wardrobe sustainably?”*)
+1. A user asks a question  
+   *(e.g., “How do I upgrade my fall wardrobe sustainably?”)*
 2. The system retrieves relevant evidence snippets from a custom knowledge base
 3. Gemini generates an answer in the persona’s voice grounded in retrieved context
 
-This satisfies the project requirement to adapt a pretrained LLM using **domain data, prompt engineering, RAG, and evaluation**.
+✅ This satisfies the project requirement to adapt a pretrained LLM using **domain data, prompt engineering, RAG, and evaluation**.
 
 ---
 
-## 2. Digital Twin Definition
+## 🧍 2. Digital Twin Definition
 
 ### 2.1 Digital Twin Type
+
 **Customer Persona Twin — Persona Mimic**
 
 ### 2.2 Persona
+
 **Trend-Conscious Sustainable Shopper**
 
 - Fashion-forward but practical  
 - Influenced by trends and social media, but avoids fast fashion excess  
-- Strong preference for ethical and sustainable choices (materials, thrifting, cost-per-wear)  
+- Strong preference for ethical and sustainable choices:
+  - materials  
+  - thrifting  
+  - cost-per-wear  
 - Likes confident, curated recommendations and “wearable” trend translation  
 
 ### 2.3 Twin Behavior
@@ -40,7 +54,7 @@ This satisfies the project requirement to adapt a pretrained LLM using **domain 
 
 ---
 
-## 3. Data Sources and Preprocessing (2 Sources)
+## 📚 3. Data Sources and Preprocessing
 
 The notebook uses **two distinct data sources**, meeting the course requirement.
 
@@ -50,19 +64,20 @@ The notebook uses **two distinct data sources**, meeting the course requirement.
 Capture authentic language and real consumer opinions about trends, styling, practicality, and brand perceptions.
 
 **What the code does:**
+
 - Scrapes Reddit threads using Reddit’s JSON endpoints (`requests`)
 - Collects:
   - post title  
   - post body  
   - comment text (optionally expanding “more comments”)
-- Filters to relevant subreddit: `r/femalefashionadvice`
+- Filters to the relevant subreddit: `r/femalefashionadvice`
 - Writes scraped output to a `.jsonl` file (one thread per line)
 
 **Preprocessing:**
-- Builds a single document per thread (title + post + first *N* comments)
-- Strips newlines and formats comments into readable bullets:
 
-  
+- Builds a single document per thread (title + post + first *N* comments)
+- Strips newlines and formats comments into readable bullet points
+
 ---
 
 ### 3.2 Data Source 2 — YouTube (Audio → Transcript)
@@ -71,37 +86,44 @@ Capture authentic language and real consumer opinions about trends, styling, pra
 Add higher-level trend guidance and seasonal fashion commentary from video essays and fashion channels.
 
 **What the code does:**
+
 - Downloads audio from YouTube URLs using `yt-dlp` (audio-only MP3s)
 - Uploads MP3 files to Gemini for transcription
 - Writes transcripts to `youtube_transcripts.jsonl`
-- Merges Reddit and YouTube documents into:
+- Merges Reddit and YouTube documents into a combined corpus
 
 **Preprocessing:**
+
 - Converts transcripts to plain text
 - Assigns document IDs like `youtube_<video_id>`
-- Stores metadata fields:
-- `source_type`
-- `url`
-- `text`
+- Stores metadata:
+  - `source_type`
+  - `url`
+  - `text`
 
 ---
 
-## 4. Retrieval-Augmented Generation (RAG) Pipeline
+## 🔍 4. Retrieval-Augmented Generation (RAG) Pipeline
 
 ### 4.1 Chunking Strategy
 
-**Reddit chunking**
+**Reddit Chunking**
+
 - Word-based chunking (~250 words per chunk)
 - Metadata includes:
-- `source` (“reddit”)
-- `post_id`, `title`, `url`
-- `chunk_id` like `reddit_<postid>_c000`
+  - `source` (reddit)
+  - `post_id`, `title`, `url`
+  - `chunk_id` (e.g., `reddit_<postid>_c000`)
 
-**Combined corpus chunking (Reddit + YouTube)**
+**Combined Corpus Chunking (Reddit + YouTube)**
+
 - Same chunk size (~250 words)
-- Metadata includes source (`reddit` or `youtube`) and unique `chunk_id`
+- Metadata includes:
+  - `source` (reddit or youtube)
+  - unique `chunk_id`
 
-**Why chunking matters**
+**Why Chunking Matters**
+
 - Improves retrieval precision  
 - Keeps prompt context within model limits  
 
@@ -110,166 +132,137 @@ Add higher-level trend guidance and seasonal fashion commentary from video essay
 ### 4.2 Embeddings
 
 Each chunk is embedded using:
+
 - **Gemini embedding model:** `gemini-embedding-001`
 
-The notebook defines:
-```python
-embed(text) -> float32 numpy vector
+The notebook defines an embedding function that converts text into a float32 NumPy vector.
 
-4.3 Vector Index (FAISS)
+---
 
-The system uses FAISS IndexFlatL2 for fast similarity search over embedding vectors.
+### 4.3 Vector Index (FAISS)
 
-Workflow:
+The system uses **FAISS `IndexFlatL2`** for fast similarity search.
 
-Build an embedding matrix from all chunk embeddings
+**Workflow:**
 
-Add embeddings to the FAISS index using index.add(vectors)
+- Build an embedding matrix from all chunk embeddings  
+- Add embeddings to the FAISS index  
+- At query time, embed the user query and retrieve the top-k nearest chunks  
 
-At query time, embed the user query and run:
+---
 
-index.search(query_vector, k) to retrieve the top-k nearest chunks
+### 4.4 Retrieval Function
 
-4.4 Retrieval Function
+- Returns the **top-k most similar chunks** by vector distance  
+- Retrieved chunks become the grounding **CONTEXT** for generation  
 
-The retrieval function is defined as:
+---
 
-retrieve(query, k)
+### 4.5 Generation Step
 
-Behavior:
+The system constructs the final prompt using:
 
-Returns the top-k most similar chunks based on vector distance
+- Persona prompt  
+- Grounding rules  
+- Response format  
+- Injected retrieved context:
 
-Retrieved chunks become the grounding CONTEXT for generation
+The prompt is passed to Gemini (e.g., `models/gemini-2.5-flash`) to generate the final response.
 
-4.5 Generation Step
+---
 
-The system constructs the final generation prompt using:
+### 4.6 Reliability / Error Handling
 
-Persona prompt
+- A `safe_generate()` wrapper retries transient Gemini server errors  
+- Improves stability for classroom demos  
 
-Grounding rules
+---
 
-Response format
+## 🧠 5. Prompt Engineering (Iteration Evidence)
 
-Injected retrieved context in the form:
+### 5.1 Prompt v1 — Initial Persona + Structured Output
 
-[chunk_id] chunk_text
+**Features:**
 
+- Persona definition  
+- Grounding rule: *“Use ONLY the CONTEXT”*
+- Structured output:
+- Style direction  
+- Outfit formulas  
+- Sustainable swaps  
+- What I’d avoid  
+- Cited chunk IDs  
 
-The prompt is then passed to Gemini (e.g., models/gemini-2.5-flash) to generate the final response in the persona’s voice.
+**Techniques Used:**
 
-4.6 Reliability / Error Handling
+- Role prompting  
+- Grounding constraints  
+- Output schema enforcement  
 
-To improve robustness:
+---
 
-A safe_generate() wrapper retries transient Gemini server errors
+### 5.2 Prompt v2 — Stronger Persona Mimic + Messaging Test
 
-This improves reliability and stability during classroom demos
+**Enhancements:**
 
-5. Prompt Engineering (Iteration Evidence)
-5.1 Prompt v1 — Initial Persona + Structured Output
+- Stronger voice constraints (concise, confident, trend-aware)
+- Explicit dislikes (fast fashion, synthetic-heavy hype)
+- Adds a **“Messaging test”** section (2 marketing lines)
+- Requires an explicit **“Evidence used”** list
 
-Features:
+**Why This Improves the Twin**
 
-Persona definition (fashion-forward + sustainability-aware)
+- Adds business value through messaging evaluation  
+- Improves consistency across outputs  
 
-Grounding rule: “Use ONLY the CONTEXT”
+---
 
-Structured response format including:
-
-Style direction
-
-Outfit formulas
-
-Sustainable swaps
-
-What I’d avoid
-
-Cited chunk IDs
-
-Techniques Used:
-
-Role prompting
-
-Grounding constraints
-
-Output schema enforcement
-
-5.2 Prompt v2 — Stronger Persona Mimic + Messaging Test
-
-Enhancements:
-
-Stronger voice constraints (concise, confident, trend-aware)
-
-Explicit dislikes (fast fashion, synthetic-heavy hype)
-
-Adds a “Messaging test” section generating two marketing lines
-
-Requires an explicit “Evidence used” list
-
-Why this improves the twin:
-
-Adds business value by enabling brand messaging tests
-
-Improves consistency and comparability across outputs
-
-6. Demo Queries and Baselines (RAG vs No-RAG)
+## 🧪 6. Demo Queries and Baselines
 
 The notebook compares:
 
-Baseline: Gemini responses without retrieval
+- **Baseline:** Gemini without retrieval  
+- **RAG:** Gemini with retrieved context  
 
-RAG: Gemini responses grounded in retrieved context
+**Example Queries:**
 
-Example demo queries:
+- Sustainable fall styling formulas  
+- Materials to prioritize for fall basics  
+- *“Best sustainable shoe brands for fall 2025”* (hallucination stress test)
 
-Sustainable fall styling formulas
+---
 
-Materials to prioritize for sustainable fall basics
+## 📊 7. Evaluation Design
 
-“Best sustainable shoe brands for fall 2025” (hallucination stress test)
+### 7.1 Evaluation Criteria
 
-7. Evaluation Design
-7.1 Evaluation Criteria
+- Persona voice match  
+- Sustainability alignment  
+- Trend and seasonal relevance  
+- Grounding / non-hallucination  
+- Structure compliance  
+- Evidence transparency  
 
-Persona voice match
+### 7.2 Evaluation Method
 
-Sustainability alignment
+- Runs baseline vs RAG across multiple queries  
+- Prints retrieved chunk IDs for sanity checks  
+- Increases `k` to ensure Reddit + YouTube coverage  
+- Appends evidence automatically if omitted  
 
-Trend and fall relevance
+### 7.3 Expected Findings
 
-Grounding / non-hallucination
+- Baseline: fluent but generic  
+- RAG improves:
+- specificity  
+- persona consistency  
+- transparency  
 
-Structure compliance
+Conservative refusals are treated as **non-hallucination wins**.
 
-Evidence transparency
+---
 
-7.2 Evaluation Method
-
-Runs baseline vs RAG across multiple queries
-
-Prints retrieved chunk IDs for retrieval sanity checks
-
-Increases k to ensure both Reddit and YouTube chunks are retrieved
-
-Automatically appends evidence if the model omits it
-
-7.3 Expected Findings
-
-Baseline responses tend to be fluent but generic
-
-RAG improves:
-
-Specificity
-
-Persona consistency
-
-Transparency through evidence citation
-
-Conservative refusals are treated as non-hallucination wins
-
-8. System Architecture Summary
+## 🏗️ 8. System Architecture Summary
 
 User Question
 ↓
@@ -283,57 +276,49 @@ Persona Prompt + Retrieved Context
 ↓
 Gemini Response + Evidence
 
-9. How to Run
 
-Install dependencies:
+---
 
-praw
+## ▶️ 9. How to Run
 
-requests
+**Install dependencies:**
 
-faiss-cpu
+- `praw`
+- `requests`
+- `faiss-cpu`
+- `yt-dlp`
+- `google-generativeai`
 
-yt-dlp
+**Setup:**
 
-google-generativeai
+- Set `GEMINI_API_KEY` securely
 
-Set GEMINI_API_KEY securely (environment variable or secret manager)
+**Run Phase 1:**
 
-Run Phase 1:
+- Scrape Reddit  
+- Chunk, embed, build FAISS index  
+- Run RAG demo  
 
-Scrape Reddit data
+**Run Phase 2:**
 
-Chunk, embed, and build FAISS index
+- Download YouTube audio  
+- Transcribe  
+- Merge documents  
+- Rebuild index  
 
-Run RAG demo
+---
 
-Run Phase 2:
+## 🚧 10. Limitations and Future Improvements
 
-Download YouTube audio
+### Limitations
 
-Transcribe audio
+- Small dataset size  
+- Word-based chunking may split concepts  
+- Strict grounding can feel conservative  
 
-Merge documents
+### Future Improvements
 
-Rebuild index
-
-Run evaluation cells
-
-10. Limitations and Future Improvements
-Limitations
-
-Small dataset size
-
-Word-based chunking may split concepts mid-thought
-
-Strict grounding can feel conservative
-
-Improvements
-
-Add more sources (ethical fashion blogs, sustainability reports)
-
-Add reranking (cross-encoder)
-
-Add scoring harness (LLM-as-judge)
-
-Add persona controls (budget sensitivity, dress code)
+- Add more sources (ethical fashion blogs, sustainability reports)  
+- Add reranking (cross-encoder)  
+- Add scoring harness (LLM-as-judge)  
+- Add persona controls (budget sensitivity, dress code)
